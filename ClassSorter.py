@@ -1,6 +1,5 @@
-# BB&N English Course Selection Sorting Program
-
 import csv
+import argparse
 
 class Student:
     # constants for class size range
@@ -8,19 +7,14 @@ class Student:
     MIN_CLASS_SIZE = 11
 
     # constants for class score calculations
-    FIRST_IMPORTANCE = 40
-    SECOND_IMPORTANCE = 30
     LARGE_CLASS_IMPORTANCE = -100
     SMALL_CLASS_IMPORTANCE = 40
     GENDER_IMPORTANCE = 50
     NOT_SELECETD_CLASS_IMPORTANCE = -100
-    NO_PREFERENCE_IMPORTANCE = 0
     
-    def __init__(self, name, first, second, third, gender):
+    def __init__(self, name, preferences, gender):
         self.name = name
-        self.first = int(first) - 1
-        self.second = int(second) - 1
-        self.third = int(third) - 1
+        self.preferences = [int(i) - 1 for i in preferences]
         self.gender = gender
 
     def is_male(self):
@@ -43,14 +37,15 @@ class Student:
         score += 2 * (self.MAX_CLASS_SIZE - len(klass))**2 # prioritize smaller classes within range
 
         # prioritize first/second/third choice
-        if klass_id == self.first: # prioritize first choice
-            score += self.FIRST_IMPORTANCE
-        elif klass_id == self.second: # prioritize second choice
-            score += self.SECOND_IMPORTANCE
-        elif self.first < 0 or self.second < 0 or self.third < 0: # no prioritization for no preference
-            score += self.NO_PREFERENCE_IMPORTANCE
-        elif klass_id != self.third: # deprioritize non choice
-            return self.NOT_SELECETD_CLASS_IMPORTANCE
+        found_class = False
+        priority_importance = len(self.preferences) * 10;
+        for index, choice in enumerate(self.preferences):
+            if klass_id == choice:
+                score += priority_importance - index * 10
+                found_class = True
+                break
+        if not found_class:
+            score += self.NOT_SELECETD_CLASS_IMPORTANCE
         
         # prioritize gender balance
         males = len([1 for student in klass if student.is_male()]) # number of males
@@ -69,61 +64,82 @@ class Student:
         return score
 
 # get data from csv
-firstLine = True
-students = []
-with open('CourseSelectionData.csv', newline='') as f:
-    reader = csv.reader(f)
-    for student_row in reader:
-        if firstLine: # skip first line (labels)
-            firstLine = False
-            continue
-        students.append(Student(student_row[0], student_row[1], student_row[2], student_row[3], student_row[4]))
+def create_students(selection_data, students):
+    firstLine = True
+    with open(selection_data, newline='') as f:
+        reader = csv.reader(f)
+        for student_row in reader:
+            if firstLine:
+                firstLine = False
+                continue
+            preferences = [student_row[i+1] for i in range(len(student_row)-2)]
+            students.append(Student(student_row[0], preferences, student_row[-1]))
 
 # count number of classes
-num_classes = []
-for student in students:
-    num_classes.extend([student. first,student.second, student.third])
-for num in num_classes:
-    if num == -1:
-        num_classes.remove(num)
+def count_classes(students, num_classes):
+    for student in students:
+        num_classes.extend(student.preferences)
+    for num in num_classes:
+        if num == -1:
+            num_classes.remove(num);
 
 # first sort
+def first_sort(students, klasses, num_classes):
+    for i in range(len(set(num_classes))):
+        klasses.append([])
+    for student in students:
+        scores = []
+        for i, klass in enumerate(klasses):
+            scores.append(student.calculate_class_score(klass, i)) # get scores for each student in each class
+
+        klasses[scores.index(max(scores))].append(student) # choose class with highest score for student in class
+
+# resort (rearrange students and reevaluate scores) a given number of times
+def sort_again(students, klasses, iterations):
+    for i in range(iterations):
+        for klass_out in klasses:
+            temp_class = klass_out[:]
+            for t,student in enumerate(temp_class):
+                klass_out.pop(0)
+                scores = []
+                for i,klass in enumerate(klasses):
+                    scores.append(student.calculate_class_score(klass,i))            
+                klasses[scores.index(max(scores))].append(student)
+
+#print results in outfile
+def write_outfile(outfile_name, klasses):
+    outfile = open(outfile_name, "w") # clear previous text
+    outfile.close()
+    outfile = open(outfile_name, "a")
+    outfile.write("Sorted Classes")
+    for i,klass in enumerate(klasses):
+        outfile.write("\n\n{} ({}/{}/{})".format(i + 1, len([1 for student in klass if student.is_male()]), len([1 for student in klass if student.is_female()]), len([1 for student in klass if student.is_other_gender()])))
+        for student in klasses[i]:
+            student_choice = 0
+            for index, preference in enumerate(student.preferences):
+                if preference == i or preference < 0:
+                    student_choice = index + 1
+            outfile.write("\n" + student.name + " (" + student.gender + ") - " + str(student_choice))
+    outfile.write("\n\n")
+    outfile.close()
+
+def main(students, klasses, num_classes, iterations, selection_data, outfile_name):
+    create_students(selection_data, students)
+    count_classes(students, num_classes)
+    first_sort(students, klasses, num_classes)
+    sort_again(students, klasses, iterations)
+    write_outfile(outfile_name, klasses);
+
+parser = argparse.ArgumentParser(description='Sort students into preferred classes.')
+parser.add_argument('--input', dest='input_file', default="CourseSelectionData.csv",
+    help='valid input csv')
+parser.add_argument('--output', dest='output_file', default="classes_output",
+    help='valid output csv')
+args = parser.parse_args()
+
+students = []
+num_classes = []
 klasses = []
-for i in range(len(set(num_classes))):
-    klasses.append([])
-for student in students:
-    scores = []
-    for i, klass in enumerate(klasses):
-        scores.append(student.calculate_class_score(klass, i)) # get scores for each student in each class
+iterations = 100
 
-    klasses[scores.index(max(scores))].append(student) # choose class with highest score for student in class
-
-# resort (rearrange students and reevaluate scores)
-for i in range(100):
-    for klass_out in klasses:
-        temp_class = klass_out[:]
-        for t,student in enumerate(temp_class):
-            klass_out.pop(0)
-            scores = []
-            for i,klass in enumerate(klasses):
-                scores.append(student.calculate_class_score(klass,i))            
-            klasses[scores.index(max(scores))].append(student)
-
-# print classes in output file
-outfile = open("english_courses_output.txt", "w") # clear previous text
-outfile.close()
-outfile = open("english_courses_output.txt", "a")
-outfile.write("SORTED BB&N ENGLISH COURSES (M/F/O)")
-for i,klass in enumerate(klasses):
-    outfile.write("\n\n{} ({}/{}/{})".format(i + 1, len([1 for student in klass if student.is_male()]), len([1 for student in klass if student.is_female()]), len([1 for student in klass if student.is_other_gender()])))
-    for student in klasses[i]:
-        student_choice = 0
-        if student.first == i or student.first < 0:
-            student_choice = 1
-        elif student.second == i or student.second < 0:
-            student_choice = 2
-        elif student.third == i or student.third < 0:
-            student_choice = 3
-        outfile.write("\n" + student.name + " (" + student.gender + ") - " + str(student_choice))
-outfile.write("\n\n")
-outfile.close()
+main(students, klasses, num_classes, iterations, args.input_file, args.output_file)
